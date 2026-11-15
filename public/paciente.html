@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f6a">
+<title>Pacientes — Jimena Andrade</title>
+<link rel="stylesheet" href="estilo.css?v=1.4.0">
+</head>
+<body>
+<header class="topo">
+  <div class="marca"><b data-clinica></b><small id="subt">Pacientes</small></div>
+  <div class="acoes">
+    <a id="voltar" href="#">‹ Agenda</a>
+  </div>
+</header>
+
+<main>
+  <!-- Lista / busca -->
+  <section id="vLista" hidden>
+    <div class="cartao">
+      <input type="text" id="busca" placeholder="Buscar paciente pelo nome" autocomplete="off">
+      <div class="abas" style="margin:10px 0 0">
+        <button class="ativa" data-filtro="todos">Todos</button>
+        <button data-filtro="trat">Em tratamento</button>
+      </div>
+    </div>
+    <div id="lista"></div>
+  </section>
+
+  <!-- Ficha do paciente -->
+  <section id="vFicha" hidden>
+    <div class="cartao">
+      <h3 id="fNome" style="margin:0 0 6px;font-size:21px"></h3>
+      <div id="fSelos"></div>
+      <div class="linha2" style="margin-top:12px">
+        <div><label class="dica">Telefone</label><input type="tel" id="fTel"></div>
+        <div><label class="dica">Nascimento</label><input type="date" id="fNasc"></div>
+      </div>
+      <label class="dica" style="display:block;margin-top:10px">Observações gerais (alergias, medicamentos, cuidados)</label>
+      <textarea id="fObs"></textarea>
+      <label style="display:flex;align-items:center;gap:10px;margin-top:10px;font-weight:600">
+        <input type="checkbox" id="fTrat" style="width:22px;height:22px"> Em tratamento com a Jimena
+      </label>
+      <button class="btn grande" id="fSalvar" style="margin-top:12px">Salvar ficha</button>
+      <div id="fSite" class="dica" style="margin-top:12px"></div>
+    </div>
+
+    <h2>Histórico</h2>
+    <div class="resumo" style="margin:0 0 14px" id="hResumo"></div>
+    <div class="cartao"><div class="hist" id="hist"></div></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=1.4.0"></script>
+<script src="comum.js?v=1.4.0"></script>
+<script src="janela.js?v=1.4.0"></script>
+<script>
+const id = new URLSearchParams(location.search).get("id");
+let filtro = "todos", tB;
+
+// ---------- Lista ----------
+async function listar() {
+  let q = sb.from("clinica_pacientes").select("id,nome,telefone,em_tratamento").order("nome").limit(60);
+  const t = $("#busca").value.trim();
+  if (t) q = q.ilike("nome", `%${t}%`);
+  if (filtro === "trat") q = q.eq("em_tratamento", true);
+  const { data } = await q;
+  const box = $("#lista"); box.innerHTML = "";
+  if (!data?.length) { box.innerHTML = `<div class="cartao vazio">Nenhum paciente encontrado.</div>`; return; }
+  data.forEach((p) => {
+    const a = document.createElement("a");
+    a.href = "paciente.html?id=" + p.id;
+    a.className = "marc"; a.style.textDecoration = "none"; a.style.color = "inherit";
+    a.innerHTML = `<div class="info"><b>${esc(p.nome)}</b><div class="srv">${esc(p.telefone || "sem telefone")}</div></div><div class="lado">${p.em_tratamento ? '<span class="trat">Em tratamento</span>' : ""}</div>`;
+    box.appendChild(a);
+  });
+}
+$("#busca").addEventListener("input", () => { clearTimeout(tB); tB = setTimeout(listar, 250); });
+$$("[data-filtro]").forEach((b) => b.onclick = () => { filtro = b.dataset.filtro; $$("[data-filtro]").forEach((x) => x.classList.toggle("ativa", x === b)); listar(); });
+
+// ---------- Ficha ----------
+let PAC;
+async function ficha() {
+  const { data: p, error } = await sb.from("clinica_pacientes").select("*").eq("id", id).maybeSingle();
+  if (error || !p) { $("#vFicha").innerHTML = `<div class="cartao vazio">Paciente não encontrado.</div>`; return; }
+  PAC = p;
+  document.title = p.nome + " — " + C.clinica;
+  $("#subt").textContent = "Ficha do paciente";
+  $("#fNome").textContent = p.nome;
+  $("#fTel").value = p.telefone || "";
+  $("#fNasc").value = p.nascimento || "";
+  $("#fObs").value = p.observacoes || "";
+  $("#fTrat").checked = p.em_tratamento;
+  $("#fSelos").innerHTML = p.em_tratamento ? '<span class="trat">Em tratamento</span>' : "";
+  $("#fSite").innerHTML = p.user_id
+    ? `✔ Tem inscrição no site. <button class="btn sec peq" id="novaSenha" type="button">Criar nova senha</button>`
+    : "Ainda não fez inscrição no site.";
+  const ns = $("#novaSenha");
+  if (ns) ns.onclick = async () => {
+    const senha = prompt("Nova senha para o cliente entrar no site (mínimo 6 caracteres):");
+    if (!senha) return;
+    const { error } = await sb.rpc("clinica_equipe_redefinir_senha", { p_paciente: id, p_senha: senha });
+    aviso(error ? error.message : "Senha nova criada. Informe ao cliente.", error ? "erro" : "ok");
+  };
+  historico();
+}
+$("#fSalvar").onclick = async () => {
+  const { error } = await sb.from("clinica_pacientes").update({
+    telefone: $("#fTel").value.trim() || null, nascimento: $("#fNasc").value || null,
+    observacoes: $("#fObs").value.trim() || null, em_tratamento: $("#fTrat").checked
+  }).eq("id", id);
+  if (error) { aviso("Não consegui salvar a ficha.", "erro"); return; }
+  aviso("Ficha salva"); ficha();
+};
+
+async function historico() {
+  const { data } = await sb.from("clinica_marcacoes").select("*").eq("paciente_id", id).order("inicio", { ascending: false });
+  const lista = data || [];
+  const agora = new Date();
+  const atend = lista.filter((m) => m.status === "atendido");
+  const futuras = lista.filter((m) => new Date(m.inicio) > agora && m.status !== "cancelado");
+  const faltas = lista.filter((m) => m.status === "faltou");
+  $("#hResumo").innerHTML = `<div><b>${atend.length}</b><small>atendimentos</small></div><div><b>${futuras.length}</b><small>marcados</small></div><div><b>${faltas.length}</b><small>faltas</small></div>`;
+  const box = $("#hist"); box.innerHTML = "";
+  if (!lista.length) { box.innerHTML = `<div class="vazio">Ainda sem marcações.</div>`; return; }
+  lista.forEach((m) => {
+    const s = servico(m.servico_id), l = local(m.inicio);
+    const el = document.createElement("div");
+    el.className = `item ${s.area === "Estética" ? "est" : ""} ${new Date(m.inicio) > agora ? "futuro" : ""}`;
+    el.style.cursor = "pointer";
+    el.innerHTML = `
+      <div class="data">${dataCurta(l.data)} · ${l.hora} ${selo(m.status)}</div>
+      <b>${esc(s.nome)}</b> ${seloArea(s.area)}
+      ${m.observacao ? `<div class="dica">📝 ${esc(m.observacao)}</div>` : ""}
+      ${m.anotacao_atendimento ? `<div class="anot">${esc(m.anotacao_atendimento)}</div>` : ""}`;
+    el.onclick = () => abrirMarcacao({ ...m, paciente: PAC }, historico);
+    box.appendChild(el);
+  });
+}
+
+(async () => {
+  const eu = await exigirLogin(); if (!eu) return;
+  $("#voltar").href = eu.papel === "dentista" ? "agenda.html" : "assistente.html";
+  $("#voltar").textContent = id ? "‹ Pacientes" : "‹ Agenda";
+  if (id) $("#voltar").href = "paciente.html";
+  await carregarServicos();
+  if (id) { $("#vFicha").hidden = false; ficha(); }
+  else { $("#vLista").hidden = false; listar(); }
+})();
+</script>
+</body>
+</html>

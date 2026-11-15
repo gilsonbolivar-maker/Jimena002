@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f6a">
+<title>Agenda — Jimena Andrade</title>
+<link rel="stylesheet" href="estilo.css?v=1.4.0">
+</head>
+<body>
+<header class="topo">
+  <div class="marca"><b data-clinica></b><small>Minha agenda</small></div>
+  <div class="acoes">
+    <a href="ausencias.html">Ausências</a>
+    <a href="paciente.html">Pacientes</a>
+    <button class="link" onclick="sair()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="cartao">
+    <div class="dias">
+      <button id="ant" aria-label="Dia anterior">‹</button>
+      <div class="rotulo" id="rotulo"></div>
+      <button id="prox" aria-label="Próximo dia">›</button>
+    </div>
+    <div class="linha2" style="margin-top:10px">
+      <input type="date" id="diaInput">
+      <button class="btn sec" id="hoje">Hoje</button>
+    </div>
+    <div class="resumo">
+      <div><b id="rTotal">0</b><small>marcações</small></div>
+      <div><b id="rConf">0</b><small>confirmadas</small></div>
+      <div><b id="rAtend">0</b><small>atendidas</small></div>
+    </div>
+    <div class="centro" style="margin-top:10px"><span class="ao-vivo" id="aoVivo">ao vivo</span></div>
+  </div>
+
+  <div id="lista"></div>
+
+  <h2>Próximos dias</h2>
+  <div class="cartao" id="proximos"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=1.4.0"></script>
+<script src="comum.js?v=1.4.0"></script>
+<script src="janela.js?v=1.4.0"></script>
+<script>
+let dia = hojeISO();
+let destaque = new Set();
+
+async function carregar() {
+  $("#rotulo").textContent = dataBonita(dia);
+  $("#diaInput").value = dia;
+  const [lista, bloqs] = await Promise.all([marcacoesDoDia(dia), bloqueiosDoDia(dia)]);
+  const ativas = lista.filter((m) => m.status !== "cancelado");
+  $("#rTotal").textContent = ativas.length;
+  $("#rConf").textContent = ativas.filter((m) => m.status === "confirmado").length;
+  $("#rAtend").textContent = ativas.filter((m) => m.status === "atendido").length;
+
+  const box = $("#lista"); box.innerHTML = "";
+  if (!C.diasAtendimento.includes(diaSemana(dia)) && !lista.length && !bloqs.length) { box.innerHTML = `<div class="cartao vazio">Sem atendimento neste dia.</div>`; return; }
+
+  // Linha do tempo: marcações + intervalos livres
+  let cursor = minutos(C.abre);
+  const fimDia = minutos(C.fecha);
+  const livre = (a, b) => { if (b - a >= C.intervaloMin) box.insertAdjacentHTML("beforeend", `<div class="livre"><span>${hhmm(a)}</span>livre até ${hhmm(b)}</div>`); };
+  const itens = [
+    ...ativas.map((m) => ({ a: minutos(local(m.inicio).hora), b: minutos(local(m.fim).hora), m })),
+    ...bloqs.map((x) => ({ a: Math.max(x.ini, 0), b: x.fim, x }))
+  ].sort((p, q) => p.a - q.a);
+  itens.forEach(({ a, b, m, x }) => {
+    if (a > cursor) livre(cursor, Math.min(a, fimDia));
+    let el;
+    if (x) el = cartaoBloqueio(x);
+    else {
+      el = cartaoMarcacao(m);
+      if (destaque.has(m.id)) el.classList.add("novo");
+      el.onclick = () => abrirMarcacao(m, carregar);
+    }
+    box.appendChild(el);
+    cursor = Math.max(cursor, b);
+  });
+  if (cursor < fimDia) livre(cursor, fimDia);
+  const canc = lista.filter((m) => m.status === "cancelado");
+  if (canc.length) {
+    box.insertAdjacentHTML("beforeend", `<h2>Canceladas</h2>`);
+    canc.forEach((m) => { const el = cartaoMarcacao(m); el.onclick = () => abrirMarcacao(m, carregar); box.appendChild(el); });
+  }
+  destaque.clear();
+}
+
+async function carregarProximos() {
+  const ini = somaDias(hojeISO(), 1), fim = somaDias(hojeISO(), 8);
+  const { data } = await sb.from("clinica_marcacoes").select("inicio,status")
+    .gte("inicio", instante(ini, "00:00")).lt("inicio", instante(fim, "00:00")).neq("status", "cancelado");
+  const cont = {};
+  (data || []).forEach((m) => { const d = local(m.inicio).data; cont[d] = (cont[d] || 0) + 1; });
+  const box = $("#proximos"); box.innerHTML = "";
+  for (let d = ini; d < fim; d = somaDias(d, 1)) {
+    if (!C.diasAtendimento.includes(diaSemana(d)) && !cont[d]) continue;
+    const b = document.createElement("button");
+    b.className = "btn sec"; b.style.cssText = "width:100%;justify-content:space-between;margin-bottom:6px";
+    b.innerHTML = `<span>${dataBonita(d)}</span><b>${cont[d] || 0}</b>`;
+    b.onclick = () => { dia = d; carregar(); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    box.appendChild(b);
+  }
+}
+
+$("#ant").onclick = () => { dia = somaDias(dia, -1); carregar(); };
+$("#prox").onclick = () => { dia = somaDias(dia, 1); carregar(); };
+$("#hoje").onclick = () => { dia = hojeISO(); carregar(); };
+$("#diaInput").onchange = (e) => { if (e.target.value) { dia = e.target.value; carregar(); } };
+
+(async () => {
+  if (!(await exigirLogin())) return;
+  await carregarServicos();
+  carregar(); carregarProximos();
+
+  sb.channel("agenda-jimena")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "clinica_marcacoes" }, async (ev) => {
+      const m = ev.new;
+      const { data: p } = await sb.from("clinica_pacientes").select("nome").eq("id", m.paciente_id).maybeSingle();
+      const l = local(m.inicio);
+      bip();
+      aviso(`🔔 Nova marcação${m.origem === "site" ? " pelo site" : ""}: ${p?.nome || "paciente"} — ${dataBonita(l.data)} às ${l.hora}`, "novo");
+      if (l.data === dia) destaque.add(m.id);
+      carregar(); carregarProximos();
+    })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "clinica_marcacoes" }, (ev) => {
+      if (ev.new.status === "cancelado" && ev.old?.status !== "cancelado") {
+        const l = local(ev.new.inicio);
+        aviso(`Marcação cancelada: ${dataBonita(l.data)} às ${l.hora}`, "erro");
+      }
+      if (ev.old?.inicio && ev.old.inicio !== ev.new.inicio) {
+        const l = local(ev.new.inicio);
+        bip(); aviso(`🔁 Remarcação: agora ${dataBonita(l.data)} às ${l.hora}`, "novo");
+        if (l.data === dia) destaque.add(ev.new.id);
+      }
+      carregar(); carregarProximos();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "clinica_bloqueios" }, () => carregar())
+    .subscribe((s) => $("#aoVivo").classList.toggle("ligado", s === "SUBSCRIBED"));
+
+  // Se a tela ficou parada (celular bloqueado), atualiza ao voltar
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { carregar(); carregarProximos(); } });
+})();
+</script>
+</body>
+</html>
