@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f6a">
+<title>Marcações — Jimena Andrade</title>
+<link rel="stylesheet" href="estilo.css?v=1.4.0">
+</head>
+<body>
+<header class="topo">
+  <div class="marca"><b data-clinica></b><small>Página da assistente</small></div>
+  <div class="acoes">
+    <a href="ausencias.html">Ausências</a>
+    <a href="paciente.html">Pacientes</a>
+    <button class="link" onclick="sair()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="abas">
+    <button class="ativa" data-aba="marcar">➕ Nova marcação</button>
+    <button data-aba="agenda">📅 Agenda</button>
+  </div>
+
+  <!-- ===== Nova marcação ===== -->
+  <section id="aba-marcar">
+    <div class="cartao">
+      <div class="passo"><div class="num">1</div><div class="corpo">
+        <label class="tit">Paciente</label>
+        <div id="pacEscolhido" hidden></div>
+        <div id="pacBusca">
+          <input type="text" id="buscaPac" placeholder="Digite o nome do paciente" autocomplete="off">
+          <div class="sugestoes" id="sugestoes" hidden></div>
+        </div>
+        <div id="pacNovo" hidden style="margin-top:8px">
+          <input type="tel" id="telNovo" placeholder="Telefone / WhatsApp (com DDD)">
+          <div class="dica">Paciente novo — será cadastrado ao marcar.</div>
+        </div>
+      </div></div>
+
+      <div class="passo"><div class="num">2</div><div class="corpo">
+        <label class="tit">Serviço</label>
+        <div class="servicos" id="servicos"></div>
+      </div></div>
+
+      <div class="passo"><div class="num">3</div><div class="corpo">
+        <label class="tit">Dia e horário</label>
+        <div class="dias">
+          <button id="diaAnt" aria-label="Dia anterior">‹</button>
+          <div class="rotulo" id="diaRotulo"></div>
+          <button id="diaProx" aria-label="Próximo dia">›</button>
+        </div>
+        <input type="date" id="diaInput" style="margin-top:8px">
+        <div class="horarios" id="horarios"></div>
+      </div></div>
+
+      <div class="passo"><div class="num">4</div><div class="corpo">
+        <label class="tit">Observação <span style="font-weight:400;color:var(--suave)">(opcional)</span></label>
+        <textarea id="obs" placeholder="Ex.: dor no dente de baixo, primeira consulta…"></textarea>
+      </div></div>
+
+      <button class="btn grande" id="marcar" disabled>Marcar horário</button>
+      <div class="dica centro" id="falta"></div>
+    </div>
+  </section>
+
+  <!-- ===== Agenda ===== -->
+  <section id="aba-agenda" hidden>
+    <div class="cartao">
+      <div class="dias">
+        <button id="agAnt">‹</button>
+        <div class="rotulo" id="agRotulo"></div>
+        <button id="agProx">›</button>
+      </div>
+      <button class="btn grande" id="enviarAgenda" style="margin-top:12px">📤 Agenda do dia</button>
+      <div class="dica centro">Abre o WhatsApp com a agenda pronta para a Jimena. É só tocar em enviar.</div>
+      <div class="centro" style="margin-top:6px"><span class="ao-vivo" id="aoVivo">ao vivo</span></div>
+    </div>
+    <div id="agLista"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=1.4.0"></script>
+<script src="comum.js?v=1.4.0"></script>
+<script src="janela.js?v=1.4.0"></script>
+<script>
+const estado = { paciente: null, novoNome: null, servicoId: null, dia: proximoDiaUtil(hojeISO()), hora: null, ocupados: [] };
+let agDia = hojeISO();
+
+function proximoDiaUtil(iso) { let d = iso; for (let i = 0; i < 8 && !C.diasAtendimento.includes(diaSemana(d)); i++) d = somaDias(d, 1); return d; }
+
+// ---------- Abas ----------
+$$("[data-aba]").forEach((b) => b.onclick = () => {
+  $$("[data-aba]").forEach((x) => x.classList.toggle("ativa", x === b));
+  $("#aba-marcar").hidden = b.dataset.aba !== "marcar";
+  $("#aba-agenda").hidden = b.dataset.aba !== "agenda";
+  if (b.dataset.aba === "agenda") carregarAgenda();
+});
+
+// ---------- 1. Paciente ----------
+let tBusca;
+$("#buscaPac").addEventListener("input", () => {
+  clearTimeout(tBusca);
+  tBusca = setTimeout(buscarPaciente, 250);
+});
+async function buscarPaciente() {
+  const q = $("#buscaPac").value.trim();
+  const box = $("#sugestoes");
+  if (q.length < 2) { box.hidden = true; return; }
+  const { data } = await sb.from("clinica_pacientes").select("id,nome,telefone,em_tratamento").ilike("nome", `%${q}%`).order("nome").limit(6);
+  box.innerHTML = "";
+  (data || []).forEach((p) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<b>${esc(p.nome)}</b> ${p.em_tratamento ? '<span class="trat">Em tratamento</span>' : ""}<br><small>${esc(p.telefone || "sem telefone")}</small>`;
+    b.onclick = () => escolherPaciente(p);
+    box.appendChild(b);
+  });
+  const novo = document.createElement("button");
+  novo.type = "button";
+  novo.innerHTML = `➕ Cadastrar novo: <b>${esc(q)}</b>`;
+  novo.onclick = () => escolherPaciente(null, q);
+  box.appendChild(novo);
+  box.hidden = false;
+}
+function escolherPaciente(p, novoNome) {
+  estado.paciente = p; estado.novoNome = p ? null : novoNome;
+  $("#sugestoes").hidden = true;
+  $("#pacBusca").hidden = true;
+  $("#pacNovo").hidden = !!p;
+  const ch = $("#pacEscolhido");
+  ch.hidden = false;
+  ch.innerHTML = `<div class="escolhido"><b>${esc(p ? p.nome : novoNome)}</b>${p?.em_tratamento ? '<span class="trat">Em tratamento</span>' : ""}<button class="btn sec peq" type="button" id="trocarPac">Trocar</button></div>`;
+  $("#trocarPac").onclick = () => {
+    estado.paciente = null; estado.novoNome = null;
+    ch.hidden = true; $("#pacNovo").hidden = true; $("#pacBusca").hidden = false;
+    $("#buscaPac").value = ""; $("#buscaPac").focus(); validar();
+  };
+  if (!p) $("#telNovo").focus();
+  validar();
+}
+
+// ---------- 2. Serviço ----------
+function desenharServicos() {
+  const box = $("#servicos"); box.innerHTML = "";
+  ["Odontologia", "Estética"].forEach((area) => {
+    const g = document.createElement("div"); g.className = "grupo"; g.textContent = area; box.appendChild(g);
+    SERVICOS.filter((s) => s.area === area).forEach((s) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = (area === "Estética" ? "est" : "odo") + (estado.servicoId === s.id ? " ativo" : "");
+      b.innerHTML = `${esc(s.nome)}<small>${s.duracao_min} min</small>`;
+      b.onclick = () => { estado.servicoId = s.id; estado.hora = null; desenharServicos(); desenharHorarios(); };
+      box.appendChild(b);
+    });
+  });
+}
+
+// ---------- 3. Dia e horário ----------
+async function mudarDia(iso, manterHora = false) {
+  if (!manterHora) estado.hora = null;
+  estado.dia = iso;
+  $("#diaRotulo").textContent = dataBonita(iso);
+  $("#diaInput").value = iso;
+  if (!manterHora) $("#horarios").innerHTML = `<div class="vazio">Carregando…</div>`;
+  const [lista, bloqs] = await Promise.all([marcacoesDoDia(iso), bloqueiosDoDia(iso)]);
+  estado.ocupados = lista.filter((m) => m.status !== "cancelado").map((m) => [minutos(local(m.inicio).hora), minutos(local(m.fim).hora)])
+    .concat(bloqs.map((x) => [x.ini, x.fim]));
+  estado.bloqueado = bloqs.find((x) => x.diaTodo) || null;
+  if (estado.hora && estado.servicoId) {
+    const t = minutos(estado.hora), d = servico(estado.servicoId).duracao_min;
+    if (estado.ocupados.some(([a, b]) => t < b && t + d > a)) { estado.hora = null; aviso("O horário escolhido acabou de ser ocupado. Escolha outro.", "erro"); }
+  }
+  desenharHorarios();
+}
+$("#diaAnt").onclick = () => mudarDia(somaDias(estado.dia, -1));
+$("#diaProx").onclick = () => mudarDia(somaDias(estado.dia, 1));
+$("#diaInput").onchange = (e) => e.target.value && mudarDia(e.target.value);
+
+function desenharHorarios() {
+  const box = $("#horarios"); box.innerHTML = "";
+  if (!C.diasAtendimento.includes(diaSemana(estado.dia))) { box.innerHTML = `<div class="vazio">Não há atendimento neste dia.</div>`; validar(); return; }
+  if (estado.bloqueado) { box.innerHTML = `<div class="vazio">🌙 Jimena ausente neste dia${estado.bloqueado.motivo ? " — " + esc(estado.bloqueado.motivo) : ""}.</div>`; validar(); return; }
+  if (!estado.servicoId) { box.innerHTML = `<div class="vazio">Escolha o serviço para ver os horários livres.</div>`; validar(); return; }
+  const dur = servico(estado.servicoId).duracao_min;
+  const agoraMin = estado.dia === hojeISO() ? minutos(local(new Date().toISOString()).hora) : -1;
+  if (estado.dia < hojeISO()) { box.innerHTML = `<div class="vazio">Este dia já passou.</div>`; validar(); return; }
+  let livres = 0;
+  for (let t = minutos(C.abre); t + dur <= minutos(C.fecha); t += C.intervaloMin) {
+    const ocupado = estado.ocupados.some(([a, b]) => t < b && t + dur > a);
+    const passou = t <= agoraMin;
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = hhmm(t);
+    b.disabled = ocupado || passou;
+    if (!b.disabled) livres++;
+    if (estado.hora === hhmm(t)) b.classList.add("ativo");
+    b.onclick = () => { estado.hora = hhmm(t); desenharHorarios(); };
+    box.appendChild(b);
+  }
+  if (!livres) box.insertAdjacentHTML("afterbegin", `<div class="vazio" style="grid-column:1/-1">Nenhum horário livre para este serviço neste dia.</div>`);
+  validar();
+}
+
+// ---------- Marcar ----------
+function validar() {
+  const falta = [];
+  if (!estado.paciente && !estado.novoNome) falta.push("paciente");
+  if (!estado.servicoId) falta.push("serviço");
+  if (!estado.hora) falta.push("horário");
+  $("#marcar").disabled = falta.length > 0;
+  $("#falta").textContent = falta.length ? "Falta escolher: " + falta.join(", ") : "";
+}
+$("#marcar").onclick = async () => {
+  const btn = $("#marcar"); btn.disabled = true; btn.textContent = "Marcando…";
+  try {
+    let pacId = estado.paciente?.id;
+    if (!pacId) {
+      const { data, error } = await sb.from("clinica_pacientes").insert({ nome: estado.novoNome, telefone: $("#telNovo").value.trim() || null }).select().single();
+      if (error) throw error;
+      pacId = data.id; estado.paciente = data; estado.novoNome = null;
+    }
+    const dur = servico(estado.servicoId).duracao_min;
+    const ini = minutos(estado.hora);
+    const { error } = await sb.from("clinica_marcacoes").insert({
+      paciente_id: pacId, servico_id: estado.servicoId,
+      inicio: instante(estado.dia, estado.hora), fim: instante(estado.dia, hhmm(ini + dur)),
+      observacao: $("#obs").value.trim() || null
+    });
+    if (error) throw error;
+    aviso(`✓ Marcado: ${estado.paciente.nome}, ${dataBonita(estado.dia)} às ${estado.hora}`);
+    limpar();
+  } catch (e) {
+    aviso(e.code === "23P01" ? "Esse horário acabou de ser ocupado. Escolha outro." : (/ausente/.test(e.message || "") ? e.message : "Não consegui marcar: " + (e.message || e)), "erro");
+    mudarDia(estado.dia);
+  } finally { btn.textContent = "Marcar horário"; validar(); }
+};
+function limpar() {
+  estado.paciente = null; estado.novoNome = null; estado.servicoId = null; estado.hora = null;
+  $("#pacEscolhido").hidden = true; $("#pacNovo").hidden = true; $("#pacBusca").hidden = false;
+  $("#buscaPac").value = ""; $("#telNovo").value = ""; $("#obs").value = "";
+  desenharServicos(); mudarDia(estado.dia);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// ---------- Agenda ----------
+let agDados = { lista: [], bloqs: [] };
+async function carregarAgenda() {
+  $("#agRotulo").textContent = dataBonita(agDia);
+  $("#enviarAgenda").textContent = "📤 Agenda do dia — " + dataCurta(agDia);
+  const [lista, bloqs] = await Promise.all([marcacoesDoDia(agDia), bloqueiosDoDia(agDia)]);
+  const box = $("#agLista"); box.innerHTML = "";
+  agDados = { lista, bloqs, dia: agDia };
+  bloqs.forEach((x) => box.appendChild(cartaoBloqueio(x)));
+  if (!lista.length && !bloqs.length) box.innerHTML = `<div class="cartao vazio">Nenhuma marcação neste dia.</div>`;
+  lista.forEach((m) => { const el = cartaoMarcacao(m); el.onclick = () => abrirMarcacao(m, () => { carregarAgenda(); mudarDia(estado.dia); }); box.appendChild(el); });
+}
+// ---------- Agenda do dia para o WhatsApp da Jimena ----------
+function textoAgenda({ lista, bloqs, dia }) {
+  const [a, m, d] = dia.split("-");
+  const ativas = lista.filter((x) => x.status !== "cancelado");
+  const canc = lista.filter((x) => x.status === "cancelado");
+  const L = [];
+  L.push(`📅 *Agenda de ${NOMES_DIA_LONGO[diaSemana(dia)]}, ${d}/${m}/${a}*`);
+  L.push(ativas.length ? `${ativas.length} atendimento${ativas.length > 1 ? "s" : ""}` : "Nenhum atendimento marcado.");
+  const itens = [
+    ...ativas.map((x) => ({ t: minutos(local(x.inicio).hora), x })),
+    ...bloqs.map((b) => ({ t: b.ini, b }))
+  ].sort((p, q) => p.t - q.t);
+  itens.forEach(({ x, b }) => {
+    L.push("");
+    if (b) {
+      L.push(`🌙 *Ausência* ${b.diaTodo ? "— dia inteiro" : hhmm(Math.max(b.ini, minutos(C.abre))) + "–" + hhmm(Math.min(b.fim, minutos(C.fecha)))}${b.motivo ? " (" + b.motivo + ")" : ""}`);
+      return;
+    }
+    const s = servico(x.servico_id), ini = local(x.inicio).hora, fim = local(x.fim).hora;
+    L.push(`*${ini}–${fim}* · ${x.paciente?.nome || "Paciente"}${x.paciente?.em_tratamento ? " (em tratamento)" : ""}`);
+    L.push(`${s.nome} · ${STATUS[x.status]?.rotulo || x.status}${x.origem === "site" ? " · pelo site" : ""}`);
+    if (x.paciente?.telefone) L.push(`📞 ${x.paciente.telefone}`);
+    if (x.observacao) L.push(`📝 ${x.observacao}`);
+  });
+  // horários livres no expediente
+  if (C.diasAtendimento.includes(diaSemana(dia)) && !bloqs.some((b) => b.diaTodo)) {
+    const ocup = itens.map(({ x, b }) => b ? [b.ini, b.fim] : [minutos(local(x.inicio).hora), minutos(local(x.fim).hora)]).sort((p, q) => p[0] - q[0]);
+    const livres = []; let cur = minutos(C.abre);
+    ocup.forEach(([i, f]) => { if (i - cur >= C.intervaloMin) livres.push(`${hhmm(cur)}–${hhmm(i)}`); cur = Math.max(cur, f); });
+    if (minutos(C.fecha) - cur >= C.intervaloMin) livres.push(`${hhmm(cur)}–${hhmm(minutos(C.fecha))}`);
+    if (livres.length) { L.push(""); L.push(`🟢 Livre: ${livres.join(", ")}`); }
+  }
+  if (canc.length) { L.push(""); L.push(`❌ Cancelada${canc.length > 1 ? "s" : ""}: ${canc.map((x) => local(x.inicio).hora + " " + (x.paciente?.nome || "")).join(", ")}`); }
+  L.push(""); L.push("— Enviado pela assistente");
+  return L.join("\n");
+}
+$("#enviarAgenda").onclick = async () => {
+  if (agDados.dia !== agDia) await carregarAgenda();
+  const n = telDigitos(C.whatsapp);
+  if (!n) { aviso("O WhatsApp da Jimena não está configurado.", "erro"); return; }
+  window.open(`https://wa.me/55${n}?text=${encodeURIComponent(textoAgenda(agDados))}`, "_blank");
+};
+
+$("#agAnt").onclick = () => { agDia = somaDias(agDia, -1); carregarAgenda(); };
+$("#agProx").onclick = () => { agDia = somaDias(agDia, 1); carregarAgenda(); };
+
+// ---------- Início ----------
+(async () => {
+  if (!(await exigirLogin())) return;
+  await carregarServicos();
+  desenharServicos();
+  mudarDia(estado.dia);
+  sb.channel("assistente")
+    .on("postgres_changes", { event: "*", schema: "public", table: "clinica_marcacoes" }, () => {
+      mudarDia(estado.dia, true);
+      if (!$("#aba-agenda").hidden) carregarAgenda();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "clinica_bloqueios" }, () => {
+      mudarDia(estado.dia, true);
+      if (!$("#aba-agenda").hidden) carregarAgenda();
+    })
+    .subscribe((s) => $("#aoVivo").classList.toggle("ligado", s === "SUBSCRIBED"));
+})();
+</script>
+</body>
+</html>

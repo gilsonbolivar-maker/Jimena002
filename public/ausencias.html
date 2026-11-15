@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f6a">
+<title>Ausências — Jimena Andrade</title>
+<link rel="stylesheet" href="estilo.css?v=1.4.0">
+</head>
+<body>
+<header class="topo">
+  <div class="marca"><b data-clinica></b><small>Ausências da Jimena</small></div>
+  <div class="acoes">
+    <a id="voltar" href="agenda.html">‹ Agenda</a>
+  </div>
+</header>
+
+<main>
+  <div class="cartao">
+    <p style="margin:0 0 14px"><b>Registrar ausência</b><br>
+      <span class="dica">Folga, viagem, compromisso pessoal. Durante a ausência ninguém consegue marcar: nem a assistente, nem o paciente pelo site.</span></p>
+
+    <div class="passo"><div class="num">1</div><div class="corpo">
+      <label class="tit">Quais dias</label>
+      <div class="linha2">
+        <div><label class="dica">De</label><input type="date" id="de"></div>
+        <div><label class="dica">Até</label><input type="date" id="ate"></div>
+      </div>
+    </div></div>
+
+    <div class="passo"><div class="num">2</div><div class="corpo">
+      <label class="tit">Que horas</label>
+      <label class="chk" style="margin-top:0"><input type="checkbox" id="diaTodo" checked> Dia inteiro</label>
+      <div class="linha2" id="horas" hidden style="margin-top:10px">
+        <div><label class="dica">Das</label><input type="time" id="hDe" step="1800"></div>
+        <div><label class="dica">Até</label><input type="time" id="hAte" step="1800"></div>
+      </div>
+    </div></div>
+
+    <div class="passo"><div class="num">3</div><div class="corpo">
+      <label class="tit">Motivo <span style="font-weight:400;color:var(--suave)">(opcional, só a equipe vê)</span></label>
+      <input type="text" id="motivo" placeholder="Ex.: viagem, consulta médica, congresso">
+    </div></div>
+
+    <button class="btn grande" id="bloquear">Registrar ausência</button>
+    <div class="dica centro" id="resumo" style="margin-top:8px"></div>
+  </div>
+
+  <h2>Próximas ausências</h2>
+  <div class="cartao" id="lista"><div class="vazio">Carregando…</div></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=1.4.0"></script>
+<script src="comum.js?v=1.4.0"></script>
+<script>
+const amanha = somaDias(hojeISO(), 1);
+$("#de").value = amanha; $("#ate").value = amanha;
+$("#de").min = hojeISO(); $("#ate").min = hojeISO();
+$("#hDe").value = C.abre; $("#hAte").value = "12:00";
+
+$("#diaTodo").onchange = () => { $("#horas").hidden = $("#diaTodo").checked; resumo(); };
+$("#de").onchange = () => { if ($("#ate").value < $("#de").value) $("#ate").value = $("#de").value; resumo(); };
+["ate", "hDe", "hAte"].forEach((i) => ($("#" + i).onchange = resumo));
+
+// Cada dia vira um período; "dia inteiro" vai da meia-noite à meia-noite
+function periodos() {
+  const de = $("#de").value, ate = $("#ate").value;
+  if (!de || !ate || ate < de) return { erro: "Escolha o dia inicial e o final." };
+  const todo = $("#diaTodo").checked, hDe = $("#hDe").value, hAte = $("#hAte").value;
+  if (!todo && (!hDe || !hAte || hAte <= hDe)) return { erro: "O horário final precisa ser depois do inicial." };
+  const lista = [];
+  for (let d = de; d <= ate; d = somaDias(d, 1)) {
+    if (lista.length > 92) return { erro: "Registre no máximo 3 meses de uma vez." };
+    lista.push(todo
+      ? { inicio: instante(d, "00:00"), fim: instante(somaDias(d, 1), "00:00") }
+      : { inicio: instante(d, hDe), fim: instante(d, hAte) });
+  }
+  return { lista, de, ate, todo, hDe, hAte };
+}
+function resumo() {
+  const p = periodos();
+  if (p.erro) { $("#resumo").textContent = p.erro; $("#bloquear").disabled = true; return; }
+  $("#bloquear").disabled = false;
+  const dias = p.de === p.ate ? dataBonita(p.de) : `de ${dataBonita(p.de)} até ${dataBonita(p.ate)}`;
+  $("#resumo").textContent = `Ausência: ${dias}, ${p.todo ? "dia inteiro" : "das " + p.hDe + " às " + p.hAte}.`;
+}
+
+$("#bloquear").onclick = async () => {
+  const p = periodos(); if (p.erro) return;
+  const btn = $("#bloquear"); btn.disabled = true;
+  try {
+    // Já existe paciente marcado nesse período? Avisa antes.
+    const { data: marcadas } = await sb.from("clinica_marcacoes")
+      .select("inicio,fim,status,paciente:clinica_pacientes(nome)")
+      .lt("inicio", p.lista[p.lista.length - 1].fim).gt("fim", p.lista[0].inicio)
+      .in("status", ["marcado", "confirmado"]).order("inicio");
+    const conflito = (marcadas || []).filter((m) =>
+      p.lista.some((x) => new Date(m.inicio) < new Date(x.fim) && new Date(m.fim) > new Date(x.inicio)));
+    if (conflito.length) {
+      const nomes = conflito.slice(0, 6).map((m) => { const l = local(m.inicio); return `• ${dataCurta(l.data)} ${l.hora} — ${m.paciente?.nome || "paciente"}`; }).join("\n");
+      const ok = confirm(`Atenção: ${conflito.length} paciente(s) já marcado(s) nesse período:\n\n${nomes}${conflito.length > 6 ? "\n…" : ""}\n\nA ausência NÃO cancela essas marcações. Será preciso avisar e remarcar esses pacientes.\n\nRegistrar a ausência mesmo assim?`);
+      if (!ok) return;
+    }
+    const motivo = $("#motivo").value.trim() || null;
+    const { error } = await sb.from("clinica_bloqueios").insert(p.lista.map((x) => ({ ...x, motivo })));
+    if (error) throw error;
+    aviso("🌙 Ausência registrada. Esses horários saíram da agenda.");
+    $("#motivo").value = "";
+    carregarLista();
+  } catch (e) {
+    aviso("Não consegui registrar a ausência: " + (e.message || e), "erro");
+  } finally { btn.disabled = false; }
+};
+
+async function carregarLista() {
+  const { data, error } = await sb.from("clinica_bloqueios").select("*").gt("fim", new Date().toISOString()).order("inicio").limit(200);
+  const box = $("#lista");
+  if (error) { box.innerHTML = `<div class="vazio">Não consegui carregar as ausências.</div>`; return; }
+  if (!data.length) { box.innerHTML = `<div class="vazio">Nenhuma ausência registrada. A agenda está aberta.</div>`; return; }
+  box.innerHTML = "";
+  data.forEach((x) => {
+    const i = local(x.inicio), f = local(x.fim);
+    const todo = i.hora === "00:00" && f.hora === "00:00" && f.data === somaDias(i.data, 1);
+    const el = document.createElement("div"); el.className = "bloq-item";
+    el.innerHTML = `
+      <div class="q"><b>${dataBonita(i.data)}</b>
+        <small>${todo ? "Dia inteiro" : `Das ${i.hora} às ${f.hora}`}${x.motivo ? " · " + esc(x.motivo) : ""}</small></div>
+      <button class="btn perigo peq" type="button">Retirar ausência</button>`;
+    $("button", el).onclick = async () => {
+      if (!confirm(`Retirar a ausência de ${dataBonita(i.data)}? Os horários voltam a ficar livres para marcação.`)) return;
+      const { error } = await sb.from("clinica_bloqueios").delete().eq("id", x.id);
+      if (error) { aviso("Não consegui retirar a ausência.", "erro"); return; }
+      aviso("Horário liberado de novo."); carregarLista();
+    };
+    box.appendChild(el);
+  });
+}
+
+(async () => {
+  const eu = await exigirLogin(); if (!eu) return;
+  if (eu.papel !== "dentista") { $("#voltar").href = "assistente.html"; }
+  resumo(); carregarLista();
+  sb.channel("bloqueios").on("postgres_changes", { event: "*", schema: "public", table: "clinica_bloqueios" }, carregarLista).subscribe();
+})();
+</script>
+</body>
+</html>

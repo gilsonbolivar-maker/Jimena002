@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4A5D3A">
+<title>Área do paciente — Jimena Andrade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Great+Vibes&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css?v=1.4.0">
+</head>
+<body class="paciente">
+<header class="topo">
+  <div class="marca">
+    <span class="mono" aria-hidden="true">JA</span>
+    <span class="marca-txt"><b data-clinica></b><small>Área do paciente</small></span>
+  </div>
+  <div class="acoes">
+    <a href="/">‹ Início</a>
+    <button class="link" id="btnSair" hidden>Sair</button>
+  </div>
+</header>
+
+<main>
+  <!-- ===== Sem entrar: inscrição ou entrada ===== -->
+  <section id="vEntrar" hidden>
+    <div class="abas">
+      <button data-aba="inscricao" class="ativa">Primeira vez</button>
+      <button data-aba="entrar">Já tenho inscrição</button>
+    </div>
+
+    <div class="cartao" id="abaInscricao">
+      <p style="margin:0 0 14px"><b>Faça sua inscrição</b><br><span class="dica">Os quatro campos são obrigatórios. Depois você já escolhe o dia e o horário da consulta.</span></p>
+      <form id="fInscricao" novalidate>
+        <label class="dica">Nome completo (obrigatório)</label>
+        <input type="text" id="iNome" autocomplete="name" required>
+        <div class="linha2" style="margin-top:10px">
+          <div><label class="dica">Telefone com DDD (obrigatório)</label><input type="tel" id="iTel" placeholder="(77) 99999-0000" autocomplete="tel" required></div>
+          <div><label class="dica">Data de nascimento (obrigatório)</label><input type="date" id="iNasc" required></div>
+        </div>
+        <label class="dica" style="display:block;margin-top:10px">Crie uma senha, com 6 caracteres ou mais (obrigatório)</label>
+        <input type="password" id="iSenha" minlength="6" autocomplete="new-password" required>
+        <button class="btn grande" id="btnInscricao" style="margin-top:14px" disabled>Fazer inscrição</button>
+        <div class="dica centro" id="faltaInscricao"></div>
+      </form>
+    </div>
+
+    <div class="cartao" id="abaEntrar" hidden>
+      <p style="margin:0 0 14px"><b>Entrar</b><br><span class="dica">Use o telefone e a senha da sua inscrição.</span></p>
+      <form id="fEntrar">
+        <label class="dica">Telefone / WhatsApp</label>
+        <input type="tel" id="eTel" autocomplete="tel" required>
+        <label class="dica" style="display:block;margin-top:10px">Senha</label>
+        <input type="password" id="eSenha" autocomplete="current-password" required>
+        <button class="btn grande" style="margin-top:14px">Entrar</button>
+      </form>
+      <p class="dica centro">Esqueceu a senha? Fale com a clínica para criar uma nova.</p>
+    </div>
+  </section>
+
+  <!-- ===== Dentro: meus horários ===== -->
+  <section id="vArea" hidden>
+    <h2 id="ola"></h2>
+    <div class="cartao">
+      <b>Meus horários</b>
+      <div id="meus"></div>
+      <button class="btn grande" id="btnNovo" style="margin-top:12px">Marcar consulta</button>
+    </div>
+    <div class="regra">
+      <b>Regra para remarcar</b>
+      Pela internet, só com pelo menos <span class="horasRegra">72</span> horas de antecedência.
+      Com menos tempo, a remarcação é feita pessoalmente com o atendimento da clínica.
+    </div>
+    <div id="passados" hidden>
+      <h2>Atendimentos anteriores</h2>
+      <div class="cartao" id="listaPassados"></div>
+    </div>
+  </section>
+
+  <!-- ===== Escolher serviço, dia e horário ===== -->
+  <section id="vEscolher" hidden>
+    <div class="cartao">
+      <p style="margin:0 0 14px"><b id="tituloEscolher"></b><br><span class="dica" id="subEscolher"></span></p>
+
+      <div class="passo" id="passoServico"><div class="num">1</div><div class="corpo">
+        <label class="tit">Tipo de consulta</label>
+        <div class="servicos" id="servicos"></div>
+        <div class="dica">Outros procedimentos são marcados direto com a clínica.</div>
+      </div></div>
+
+      <div class="passo"><div class="num" id="numDia">2</div><div class="corpo">
+        <label class="tit">Dia e horário disponíveis</label>
+        <div class="dias">
+          <button id="diaAnt" type="button" aria-label="Dia anterior">‹</button>
+          <div class="rotulo" id="diaRotulo"></div>
+          <button id="diaProx" type="button" aria-label="Próximo dia">›</button>
+        </div>
+        <input type="date" id="diaInput" style="margin-top:8px">
+        <div class="horarios" id="horarios"></div>
+      </div></div>
+
+      <button class="btn grande" id="btnConfirmar" disabled></button>
+      <button class="btn sec grande" id="btnVoltar" style="margin-top:8px">Voltar</button>
+    </div>
+  </section>
+
+  <section id="vEquipe" hidden>
+    <div class="cartao centro">
+      <p>Você entrou com uma conta da equipe.</p>
+      <a class="btn" href="entrar.html">Ir para a área da equipe</a>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=1.4.0"></script>
+<script src="comum.js?v=1.4.0"></script>
+<script>
+const HORAS = C.antecedenciaRemarcarHoras;
+$$(".horasRegra").forEach((e) => (e.textContent = HORAS));
+const telas = ["vEntrar", "vArea", "vEscolher", "vEquipe"];
+function mostrar(id) { telas.forEach((t) => ($("#" + t).hidden = t !== id)); window.scrollTo({ top: 0 }); }
+
+// ---------- Abas de inscrição / entrada ----------
+function aba(nome) {
+  $$("[data-aba]").forEach((b) => b.classList.toggle("ativa", b.dataset.aba === nome));
+  $("#abaInscricao").hidden = nome !== "inscricao";
+  $("#abaEntrar").hidden = nome !== "entrar";
+}
+$$("[data-aba]").forEach((b) => (b.onclick = () => aba(b.dataset.aba)));
+
+async function entrar(tel, senha) {
+  const { error } = await sb.auth.signInWithPassword({ email: emailPaciente(tel), password: senha });
+  if (error) { aviso("Telefone ou senha incorretos.", "erro"); return false; }
+  return true;
+}
+// Os quatro campos são obrigatórios: sem todos preenchidos, o botão não libera
+function faltaNaInscricao() {
+  const falta = [];
+  const nome = $("#iNome").value.trim().split(/\s+/).filter(Boolean);
+  if (nome.length < 2 || nome.join("").length < 3) falta.push("nome completo (nome e sobrenome)");
+  if (![10, 11].includes(telDigitos($("#iTel").value).length)) falta.push("telefone com DDD");
+  const nasc = $("#iNasc").value;
+  if (!nasc || nasc > hojeISO() || nasc < "1900-01-01") falta.push("data de nascimento");
+  if ($("#iSenha").value.length < 6) falta.push("senha com 6 caracteres ou mais");
+  return falta;
+}
+function conferirInscricao() {
+  const falta = faltaNaInscricao();
+  $("#btnInscricao").disabled = falta.length > 0;
+  $("#faltaInscricao").textContent = falta.length ? "Falta preencher: " + falta.join(", ") + "." : "";
+  return falta;
+}
+["iNome", "iTel", "iNasc", "iSenha"].forEach((i) => ["input", "change"].forEach((ev) => $("#" + i).addEventListener(ev, conferirInscricao)));
+conferirInscricao();
+
+$("#fInscricao").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (conferirInscricao().length) return;
+  const btn = $("#btnInscricao"); btn.disabled = true;
+  const tel = $("#iTel").value, senha = $("#iSenha").value;
+  const { error } = await sb.rpc("clinica_cadastrar", { p_nome: $("#iNome").value, p_telefone: tel, p_nascimento: $("#iNasc").value || null, p_senha: senha });
+  btn.disabled = false;
+  if (error) { aviso(error.message, "erro"); if (/já tem inscrição/.test(error.message)) { aba("entrar"); $("#eTel").value = tel; } return; }
+  if (await entrar(tel, senha)) { aviso("Inscrição feita! Agora escolha seu horário."); await abrirArea(true); }
+});
+$("#fEntrar").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (await entrar($("#eTel").value, $("#eSenha").value)) abrirArea(false);
+});
+$("#btnSair").onclick = () => sair("cliente.html?aba=entrar");
+
+// ---------- Minha área ----------
+let MINHAS = [];
+function podeRemarcar(m) { return new Date(m.inicio) - Date.now() >= HORAS * 3600e3; }
+
+async function abrirArea(irMarcar) {
+  const { data: eu } = await sb.rpc("clinica_meus_dados");
+  if (!eu?.length) { mostrar("vEquipe"); $("#btnSair").hidden = false; return; }
+  $("#btnSair").hidden = false;
+  $("#ola").textContent = "Olá, " + eu[0].nome.split(" ")[0];
+  if (!SERVICOS.length) await carregarServicos();
+  await carregarMinhas();
+  if (irMarcar && !MINHAS.some((m) => new Date(m.inicio) > new Date() && m.status !== "cancelado")) abrirEscolha(null);
+  else mostrar("vArea");
+}
+
+async function carregarMinhas() {
+  const { data, error } = await sb.rpc("clinica_minhas_marcacoes");
+  if (error) { aviso("Não consegui carregar seus horários.", "erro"); return; }
+  MINHAS = data || [];
+  const agora = new Date();
+  const futuras = MINHAS.filter((m) => new Date(m.inicio) > agora && ["marcado", "confirmado"].includes(m.status)).reverse();
+  const box = $("#meus"); box.innerHTML = "";
+  if (!futuras.length) box.innerHTML = `<div class="vazio">Você não tem horário marcado.</div>`;
+  futuras.forEach((m) => {
+    const l = local(m.inicio), pode = podeRemarcar(m);
+    const el = document.createElement("div"); el.className = "meu";
+    el.innerHTML = `
+      <div class="quando">
+        <b>${dataBonita(l.data)} às ${l.hora}</b>
+        <small>${esc(servico(m.servico_id).nome)}</small> ${selo(m.status)}
+        ${pode ? "" : `<div class="bloq">Faltam menos de ${HORAS} horas. Remarcação só pessoalmente com o atendimento.</div>`}
+      </div>
+      ${pode ? `<button class="btn sec peq" type="button">Remarcar</button>` : ""}`;
+    const b = $("button", el);
+    if (b) b.onclick = () => abrirEscolha(m);
+    box.appendChild(el);
+  });
+  const passados = MINHAS.filter((m) => new Date(m.inicio) <= agora || !["marcado", "confirmado"].includes(m.status));
+  $("#passados").hidden = !passados.length;
+  $("#listaPassados").innerHTML = passados.map((m) => {
+    const l = local(m.inicio);
+    return `<div class="meu"><div class="quando"><b>${dataCurta(l.data)} às ${l.hora}</b><small>${esc(servico(m.servico_id).nome)}</small></div>${selo(m.status)}</div>`;
+  }).join("");
+}
+$("#btnNovo").onclick = () => abrirEscolha(null);
+
+// ---------- Escolher dia e horário (marcar ou remarcar) ----------
+const est = { remarcando: null, servicoId: null, dia: null, hora: null, ocupados: [] };
+
+function proximoDiaUtil(iso) { let d = iso; for (let i = 0; i < 8 && !C.diasAtendimento.includes(diaSemana(d)); i++) d = somaDias(d, 1); return d; }
+
+function abrirEscolha(m) {
+  est.remarcando = m; est.hora = null;
+  est.servicoId = m ? m.servico_id : null;
+  $("#passoServico").hidden = !!m;
+  $("#numDia").textContent = m ? "1" : "2";
+  if (m) {
+    const l = local(m.inicio);
+    $("#tituloEscolher").textContent = "Remarcar atendimento";
+    $("#subEscolher").textContent = `${servico(m.servico_id).nome} — hoje está em ${dataBonita(l.data)} às ${l.hora}. Escolha o novo dia e horário.`;
+  } else {
+    $("#tituloEscolher").textContent = "Marcar consulta";
+    $("#subEscolher").textContent = "Escolha o tipo de consulta, o dia e o horário.";
+    desenharServicos();
+  }
+  mostrar("vEscolher");
+  mudarDia(proximoDiaUtil(somaDias(hojeISO(), 1)));
+}
+$("#btnVoltar").onclick = () => mostrar("vArea");
+
+function desenharServicos() {
+  const box = $("#servicos"); box.innerHTML = "";
+  SERVICOS.filter((s) => s.online).forEach((s) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = (s.area === "Estética" ? "est" : "odo") + (est.servicoId === s.id ? " ativo" : "");
+    b.innerHTML = `${esc(s.nome)}<small>${esc(s.area)} · ${s.duracao_min} min</small>`;
+    b.onclick = () => { est.servicoId = s.id; est.hora = null; desenharServicos(); desenharHorarios(); };
+    box.appendChild(b);
+  });
+}
+
+async function mudarDia(iso) {
+  if (iso < hojeISO()) iso = hojeISO();
+  est.dia = iso; est.hora = null;
+  $("#diaRotulo").textContent = dataBonita(iso);
+  $("#diaInput").value = iso; $("#diaInput").min = hojeISO();
+  $("#horarios").innerHTML = `<div class="vazio">Carregando…</div>`;
+  const { data, error } = await sb.rpc("clinica_ocupados", { p_dia: iso });
+  if (error) { $("#horarios").innerHTML = `<div class="vazio">Não consegui carregar a agenda. Tente de novo.</div>`; return; }
+  if (iso !== est.dia) return;
+  est.ocupados = (data || [])
+    .filter((o) => !(est.remarcando && o.inicio && new Date(o.inicio).getTime() === new Date(est.remarcando.inicio).getTime()))
+    .map((o) => [minutos(local(o.inicio).hora), local(o.fim).data > iso ? 24 * 60 : minutos(local(o.fim).hora)]); // bloqueio de dia inteiro termina à meia-noite do dia seguinte
+  desenharHorarios();
+}
+$("#diaAnt").onclick = () => mudarDia(somaDias(est.dia, -1));
+$("#diaProx").onclick = () => mudarDia(somaDias(est.dia, 1));
+$("#diaInput").onchange = (e) => e.target.value && mudarDia(e.target.value);
+
+function duracao() {
+  if (est.remarcando) return Math.round((new Date(est.remarcando.fim) - new Date(est.remarcando.inicio)) / 60000);
+  return servico(est.servicoId).duracao_min;
+}
+function desenharHorarios() {
+  const box = $("#horarios"); box.innerHTML = "";
+  const fim = () => atualizarBotao();
+  if (!C.diasAtendimento.includes(diaSemana(est.dia))) { box.innerHTML = `<div class="vazio">Não há atendimento neste dia.</div>`; return fim(); }
+  if (!est.servicoId) { box.innerHTML = `<div class="vazio">Escolha o tipo de consulta para ver os horários livres.</div>`; return fim(); }
+  const dur = duracao();
+  const agoraMin = est.dia === hojeISO() ? minutos(local(new Date().toISOString()).hora) : -1;
+  let livres = 0;
+  for (let t = minutos(C.abre); t + dur <= minutos(C.fecha); t += C.intervaloMin) {
+    if (t <= agoraMin || est.ocupados.some(([a, b]) => t < b && t + dur > a)) continue; // o cliente só vê os livres
+    livres++;
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = hhmm(t);
+    if (est.hora === hhmm(t)) b.classList.add("ativo");
+    b.onclick = () => { est.hora = hhmm(t); desenharHorarios(); };
+    box.appendChild(b);
+  }
+  if (!livres) box.innerHTML = `<div class="vazio">Nenhum horário livre neste dia. Veja o próximo dia.</div>`;
+  fim();
+}
+function atualizarBotao() {
+  const b = $("#btnConfirmar");
+  b.disabled = !(est.servicoId && est.hora);
+  const acao = est.remarcando ? "Remarcar para" : "Marcar";
+  b.textContent = est.hora ? `${acao} ${dataBonita(est.dia)} às ${est.hora}` : (est.remarcando ? "Escolha o novo horário" : "Escolha o horário");
+}
+$("#btnConfirmar").onclick = async () => {
+  const b = $("#btnConfirmar"); b.disabled = true;
+  const inicio = instante(est.dia, est.hora);
+  const { error } = est.remarcando
+    ? await sb.rpc("clinica_paciente_remarcar", { p_id: est.remarcando.id, p_inicio: inicio })
+    : await sb.rpc("clinica_paciente_marcar", { p_servico: est.servicoId, p_inicio: inicio });
+  if (error) { aviso(error.message, "erro"); mudarDia(est.dia); return; }
+  aviso(est.remarcando ? "✓ Atendimento remarcado." : "✓ Consulta marcada. A clínica já recebeu seu pedido.");
+  await carregarMinhas();
+  mostrar("vArea");
+};
+
+// ---------- Início ----------
+(async () => {
+  const { data } = await sb.auth.getSession();
+  if (data.session) return abrirArea(false);
+  aba(new URLSearchParams(location.search).get("aba") === "entrar" ? "entrar" : "inscricao");
+  mostrar("vEntrar");
+})();
+</script>
+</body>
+</html>
